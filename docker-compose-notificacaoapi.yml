@@ -1,0 +1,80 @@
+services:
+  notificacaoapi-database:
+    image: postgres:18
+    container_name: NotificacaoAPI-Database
+
+    environment:
+      TZ: America/Sao_Paulo
+
+      PGHOST: postgres
+      PGPORT: 5432
+      PGUSER: ${DATABASE_USER:-postgres}
+      PGPASSWORD: ${DATABASE_PASSWORD:?defina DATABASE_PASSWORD no arquivo .env}
+      PGDATABASE: ${DATABASE_NAME:-postgres}
+
+      NOTIFICACAO_DATABASE_NAME: ${NOTIFICACAO_DATABASE_NAME:-notificacao}
+
+    init: true
+
+    entrypoint: ["sh", "-c"]
+    command:
+      - |
+        until pg_isready -q; do sleep 2; done
+        psql -tAc "SELECT 1 FROM pg_database WHERE datname = '$$NOTIFICACAO_DATABASE_NAME'" | grep -q 1 ||
+        psql -c "CREATE DATABASE \"$$NOTIFICACAO_DATABASE_NAME\"" || exit 1
+        exec sleep infinity
+
+    healthcheck:
+      test: ["CMD-SHELL", "psql -tAc \"SELECT 1 FROM pg_database WHERE datname = '$$NOTIFICACAO_DATABASE_NAME'\" | grep -q 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+    restart: always
+
+    networks:
+      - shared-net
+
+  notificacaoapi:
+    container_name: NotificacaoAPI
+    build: .
+    image: notificacaoapi:1.0.0
+
+    environment:
+      TZ: America/Sao_Paulo
+
+      SPRING_PROFILES_ACTIVE: prod
+
+      DATABASE_IP: postgres
+      DATABASE_PORT: 5432
+      DATABASE_NAME: ${NOTIFICACAO_DATABASE_NAME:-notificacao}
+      DATABASE_USER: ${DATABASE_USER:-postgres}
+      DATABASE_PASSWORD: ${DATABASE_PASSWORD:?defina DATABASE_PASSWORD no arquivo .env}
+
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: 5672
+      RABBITMQ_USERNAME: ${RABBITMQ_USERNAME:-fiap}
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:?defina RABBITMQ_PASSWORD no arquivo .env}
+
+      MAIL_HOST: ${MAIL_HOST:?defina MAIL_HOST no arquivo .env}
+      MAIL_PORT: ${MAIL_PORT:-587}
+      MAIL_USERNAME: ${MAIL_USERNAME:?defina MAIL_USERNAME no arquivo .env}
+      MAIL_PASSWORD: ${MAIL_PASSWORD:?defina MAIL_PASSWORD no arquivo .env}
+      MAIL_FROM: ${MAIL_FROM:-naoresponda@hospital.fiap.br}
+
+    volumes:
+      - ./logs:/app/logs
+
+    depends_on:
+      notificacaoapi-database:
+        condition: service_healthy
+
+    restart: always
+
+    networks:
+      - shared-net
+
+networks:
+  shared-net:
+    external: true
